@@ -510,6 +510,12 @@ const SCRIPT = [
   [21.0, 22.6, '一个【圆满】的结局。', { fs: 70, bg: '#c83a26', ink: '#fff1d6', hi: '#f7cf5a', frame: GOLD }],
   [22.6, 99, '中秋节快乐，\n写作者们', { fs: 104, bg: '#c83a26', ink: '#fff1d6', hi: '#f7cf5a', frame: GOLD, tape: false, sign: 'ShawnWhitney' }],
 ];
+// ?cover renders the thumbnail layout: final scene with a headline instead of the greeting
+const COVER = new URLSearchParams(location.search).has('cover');
+const COVER_TEX = COVER && {
+  head: TX(strip('月亮一年【圆】一次，\n你的故事也在等那一晚', { seed: 41, fs: 88, bg: '#c83a26', ink: '#fff1d6', hi: '#f7cf5a', frame: GOLD, tape: false, sign: 'ShawnWhitney' })),
+  kick: TX(strip('中秋 · 写给写作者', { seed: 42, fs: 50 })),
+};
 const LINES = SCRIPT.map(([t0, t1, s, o], i) => ({ t0, t1, tex: TX(strip(s, Object.assign({ seed: i + 1 }, o || {}))), tilt: (i % 2 ? 1 : -1) * .022, dir: i % 2 ? -1 : 1, y: i === 11 ? 1170 : 1180 }));
 
 /* ---------------- draw calls ---------------- */
@@ -693,10 +699,13 @@ function frame(t) {
   }
 
   // ---- tag
-  spr(S.tag, 82, 250, { s: easeOutBack((t - .9) / .5) * .9, r: -.04, rim: 4, sh: .45, seed: 9 });
+  spr(S.tag, 82, COVER ? 440 : 250, { s: easeOutBack((t - .9) / .5) * .9, r: -.04, rim: 4, sh: .45, seed: 9 });
 
   // ---- text
-  for (const L of LINES) {
+  if (COVER) {
+    spr(COVER_TEX.head, 540, 1185, { r: -.018, rim: 6, sh: .6, seed: 41 });
+    spr(COVER_TEX.kick, 330, 975, { r: -.06, rim: 5, sh: .55, seed: 42 });
+  } else for (const L of LINES) {
     if (t < L.t0 || t > L.t1 + .12) continue;
     const u = t - L.t0, e = easeOutBack(u / .42);
     let a = clamp01(u / .16), s = .72 + .28 * e, y = L.y, r = L.tilt + (1 - e) * .16 * L.dir;
@@ -840,7 +849,7 @@ function playScore(ac, out, t0) {
 /* ---------------- recording ---------------- */
 const playBtn = document.getElementById('play');
 const params = new URLSearchParams(location.search);
-const fixedT = params.has('t') ? parseFloat(params.get('t')) : null;
+const fixedT = params.has('t') ? parseFloat(params.get('t')) : COVER ? 24.6 : null;
 let start = 0, recorder = null, state = 'poster';
 let AC = null, master = null, recDest = null, bus = null;
 
