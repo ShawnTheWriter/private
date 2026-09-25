@@ -12,6 +12,8 @@ body{font-family:"Kaiti SC","STKaiti","KaiTi",serif}
 #ui{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;gap:10px;opacity:0;transition:opacity .4s;pointer-events:none}
 #ui.show{opacity:1;pointer-events:auto}
 #ui button{font:inherit;font-size:16px;padding:10px 18px;border:2px solid #f3e2bf;border-radius:999px;background:rgba(200,58,38,.92);color:#fff6e2;cursor:pointer;white-space:nowrap}
+#play{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font:inherit;font-size:28px;padding:18px 38px;border:3px solid #f3e2bf;border-radius:999px;background:rgba(200,58,38,.94);color:#fff6e2;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+#play small{display:block;font-size:13px;opacity:.8;margin-top:4px}
 #msg{position:fixed;top:14px;left:50%;transform:translateX(-50%);color:#f3e2bf;font-size:14px;background:rgba(0,0,0,.55);padding:6px 12px;border-radius:8px;display:none}
 </style>
 </head>
@@ -19,6 +21,7 @@ body{font-family:"Kaiti SC","STKaiti","KaiTi",serif}
 <div id="stage"><canvas id="c"></canvas></div>
 <div id="ui"><button id="replay">↻ 重播</button><button id="rec">⏺ 录制视频</button></div>
 <div id="msg"></div>
+<button id="play">▶ 播放<small>有声音 · with sound</small></button>
 <script>
 "use strict";
 /* ============================================================
@@ -716,32 +719,180 @@ function frame(t) {
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
+/* ---------------- music: synthesized live with Web Audio (no audio files) ---------------- */
+const SEMI = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+function hz(n) { const m = n.match(/^([A-G])(#?)(\d)$/); return 440 * Math.pow(2, (SEMI[m[1]] + (m[2] ? 1 : 0) + (+m[3] + 1) * 12 - 69) / 12); }
+
+// the score, in film seconds; D major pentatonic (D E F# A B)
+function score() {
+  const E = [], b = .6;
+  const P = (t, n, g = .45, pan = 0, bend = false) => E.push({ v: 'pluck', t, n, g, pan, bend });
+  const B = (t, ns, g = .18, d = 3) => E.push({ v: 'bell', t, ns, g, d });
+  const L = (t, n, g = .35, d = 1.6) => E.push({ v: 'bass', t, n, g, d });
+  const PAD = (t, t1, ns, g = .05) => E.push({ v: 'pad', t, t1, ns, g });
+  const mel = (t, str, g, pan) => { for (const tok of str.split(' ')) { const [n, d] = tok.split(':'); if (n !== '_') P(t, n, g, pan, +d >= 2); t += +d * b; } return t; };
+  const ost = (t, bars) => bars.forEach((ch, i) => ch.forEach((n, k) => P(t + (i * 4 + k) * b, n, .15, -.35)));
+  const D = ['D3', 'A3', 'D4', 'A3'], Bm = ['B2', 'F#3', 'B3', 'F#3'], Em = ['E3', 'B3', 'E4', 'B3'], A = ['A2', 'E3', 'A3', 'E3'];
+
+  // 今晚，月亮是圆的 — music box over a soft pad
+  PAD(0, 2.9, ['D3', 'A3', 'F#4']);
+  ['D5', 'F#5', 'A5', 'F#5', 'D6', 'A5'].forEach((n, i) => B(.45 + i * .34, [n], .07, 1.6));
+  // the moon scatters…
+  ['A5', 'F#5', 'E5', 'D5', 'B4', 'A4', 'F#4'].forEach((n, i) => P(2.62 + i * .13, n, .3, i % 2 ? -.5 : .5));
+  L(2.62, 'B1', .2, 2); PAD(3.0, 4.4, ['B2', 'F#3', 'E4'], .035);
+  // …and snaps back
+  ['D4', 'E4', 'F#4', 'A4', 'B4', 'D5', 'E5', 'F#5', 'A5'].forEach((n, i) => P(3.8 + i * .055, n, .26, -.4 + i * .1));
+  B(4.3, ['D5', 'A5', 'D6'], .16, 4); L(4.3, 'D2', .4, 3);
+  // the story verse
+  PAD(4.4, 15.2, ['D3', 'A3', 'E4'], .04);
+  mel(5.0, 'A4:1 B4:1 D5:2 B4:1 A4:1 F#4:2 E4:1 F#4:1 A4:2 B4:1 A4:.5 F#4:.5 E4:2', .5, .1);
+  ost(5.0, [D, Bm, Em, A]);
+  ['D2', 'B1', 'E2', 'A1'].forEach((n, i) => L(5.0 + i * 4 * b, n, .3, 2.2));
+  for (let k = 0, t = 7.5; t < 14.8; k++, t += 2 * b) P(t, ['F#5', 'A5', 'B5', 'D6'][k % 4], .12, .6);
+  // 伏笔 / 角色 / 那条线 appear
+  B(9.9, ['E6'], .12, 2); B(11.3, ['D6'], .1, 2); B(11.5, ['A5'], .1, 2);
+  B(12.7, ['F#6'], .1, 2); ['A5', 'B5', 'D6'].forEach((n, i) => P(12.72 + i * .06, n, .14, .6));
+  // 回家: one pluck per hop, climbing
+  const hops = [];
+  for (let k = 1; k <= 4; k++) hops.push([15 + k / 3, -.5]);
+  for (let k = 1; k <= 5; k++) hops.push([15 + k / 3.6, .5]);
+  hops.sort((p, q) => p[0] - q[0]).forEach(([t, pan], i) => P(t, ['D4', 'E4', 'F#4', 'A4', 'B4', 'D5', 'E5', 'F#5', 'A5'][i], .32, pan));
+  B(15.9, ['D5', 'F#5', 'A5'], .18, 4.5); L(15.9, 'D2', .45, 3.5);
+  // the wish
+  PAD(16.4, 18.8, ['D3', 'A3', 'F#4'], .05); PAD(18.7, 21.1, ['B2', 'F#3', 'D4'], .05); PAD(21.0, 22.4, ['E3', 'B3', 'A4'], .05);
+  mel(16.6, 'F#5:1 E5:1 D5:1 E5:1 F#5:1 A5:1 B5:1.3', .42, .1);
+  mel(18.7, 'D5:1 B4:1 A4:1.8', .22, -.3);
+  ost(16.6, [D, Bm]); L(16.6, 'D2', .3, 2.4); L(19.0, 'B1', .3, 2.4);
+  // the red circle draws itself
+  ['D4', 'F#4', 'A4', 'B4', 'D5', 'F#5', 'A5', 'B5', 'D6'].forEach((n, i) => P(21.0 + i * .135, n, .3, -.6 + i * .15));
+  L(21.0, 'E2', .3, 1.5);
+  B(22.25, ['D5', 'F#5', 'A5', 'D6'], .2, 5); L(22.25, 'D2', .5, 4);
+  PAD(22.25, 25.2, ['D3', 'A3', 'F#4', 'E5'], .05);
+  // the seal lands
+  E.push({ v: 'thump', t: 23.25, g: .8 }); B(23.3, ['A5'], .12, 3);
+  ['A5', 'F#5', 'E5', 'D5'].forEach((n, i) => P(23.7 + i * .3, n, .25, .2));
+  return E;
+}
+
+// plucked string (Karplus–Strong), pre-rendered per pitch
+function ksBuffer(ac, f) {
+  const sr = ac.sampleRate, N = Math.round(sr / f), len = Math.floor(sr * 2.4);
+  const buf = ac.createBuffer(1, len, sr), d = buf.getChannelData(0), r = rng(Math.round(f * 100));
+  for (let i = 0; i < N; i++) d[i] = r() * 2 - 1;
+  for (let i = 1; i < N; i++) d[i] = .5 * (d[i] + d[i - 1]);
+  const decay = f > 800 ? .990 : f > 400 ? .994 : .997;
+  for (let i = N; i < len; i++) d[i] = decay * .5 * (d[i - N] + d[i - N + 1]);
+  let pk = 0; for (let i = 0; i < len; i++) pk = Math.max(pk, Math.abs(d[i]));
+  for (let i = 0; i < len; i++) d[i] /= pk;
+  return { buf, rate: f * N / sr };
+}
+function impulse(ac, secs) {
+  const sr = ac.sampleRate, len = Math.floor(sr * secs), b = ac.createBuffer(2, len, sr), r = rng(99);
+  for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (r() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+  return b;
+}
+
+// schedule the whole score onto `out`, with film time 0 at audio time t0
+function playScore(ac, out, t0) {
+  if (!ac.__ks) ac.__ks = {};
+  const ks = n => ac.__ks[n] || (ac.__ks[n] = ksBuffer(ac, hz(n)));
+  const rev = ac.createConvolver(); rev.buffer = ac.__imp || (ac.__imp = impulse(ac, 2.8));
+  const wet = ac.createGain(); wet.gain.value = .38; rev.connect(wet); wet.connect(out);
+  const voice = (g, pan, send = .5) => {
+    const p = ac.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(out);
+    const s = ac.createGain(); s.gain.value = send; p.connect(s); s.connect(rev); return p;
+  };
+  for (const e of score()) {
+    const T = t0 + e.t;
+    if (e.v === 'pluck') {
+      const k = ks(e.n), src = ac.createBufferSource(), g = ac.createGain(), lp = ac.createBiquadFilter();
+      src.buffer = k.buf; lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, hz(e.n) * 7);
+      if (e.bend) { src.playbackRate.setValueAtTime(k.rate * .972, T); src.playbackRate.linearRampToValueAtTime(k.rate, T + .09); }
+      else src.playbackRate.value = k.rate;
+      g.gain.value = e.g; src.connect(lp); lp.connect(g); voice(g, e.pan, .45); src.start(T);
+    } else if (e.v === 'bell') {
+      for (const n of e.ns) for (const [ratio, amp] of [[1, 1], [2.76, .3], [5.4, .12], [8.93, .05]]) {
+        const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = hz(n) * ratio;
+        g.gain.setValueAtTime(0, T); g.gain.linearRampToValueAtTime(e.g * amp, T + .006);
+        g.gain.exponentialRampToValueAtTime(.0001, T + e.d / Math.sqrt(ratio));
+        o.connect(g); voice(g, 0, .7); o.start(T); o.stop(T + e.d + .1);
+      }
+    } else if (e.v === 'bass') {
+      const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = hz(e.n);
+      g.gain.setValueAtTime(0, T); g.gain.linearRampToValueAtTime(e.g, T + .03); g.gain.exponentialRampToValueAtTime(.0001, T + e.d);
+      o.connect(g); voice(g, 0, .2); o.start(T); o.stop(T + e.d + .1);
+    } else if (e.v === 'pad') {
+      const T1 = t0 + e.t1;
+      for (const n of e.ns) for (const det of [-7, 7]) {
+        const o = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter();
+        o.type = 'triangle'; o.frequency.value = hz(n); o.detune.value = det; lp.type = 'lowpass'; lp.frequency.value = 1100;
+        g.gain.setValueAtTime(0, T); g.gain.linearRampToValueAtTime(e.g, T + Math.min(1.1, (T1 - T) * .4));
+        g.gain.setValueAtTime(e.g, Math.max(T + .01, T1 - .9)); g.gain.linearRampToValueAtTime(0, T1 + .6);
+        o.connect(lp); lp.connect(g); voice(g, det < 0 ? -.3 : .3, .6); o.start(T); o.stop(T1 + .7);
+      }
+    } else if (e.v === 'thump') {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.setValueAtTime(150, T); o.frequency.exponentialRampToValueAtTime(48, T + .25);
+      g.gain.setValueAtTime(e.g, T); g.gain.exponentialRampToValueAtTime(.0001, T + .6);
+      o.connect(g); voice(g, 0, .3); o.start(T); o.stop(T + .7);
+    }
+  }
+  // gentle fade at the very end
+  out.gain.setValueAtTime(1, t0 + 24.2); out.gain.linearRampToValueAtTime(0, t0 + 25.3);
+}
+
 /* ---------------- playback, replay, recording ---------------- */
-const ui = document.getElementById('ui');
+const ui = document.getElementById('ui'), playBtn = document.getElementById('play');
 const params = new URLSearchParams(location.search);
-let start = performance.now(), recorder = null, done = false;
 const fixedT = params.has('t') ? parseFloat(params.get('t')) : null;
-function restart() { start = performance.now(); done = false; ui.classList.remove('show'); }
+let start = 0, recorder = null, done = false, state = 'poster';
+let AC = null, master = null, recDest = null, bus = null;
+
+function initAudio() {
+  if (AC) { AC.resume(); return; }
+  const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
+  AC = new Ctx();
+  master = AC.createDynamicsCompressor(); master.threshold.value = -14; master.ratio.value = 3;
+  const vol = AC.createGain(); vol.gain.value = .85; master.connect(vol); vol.connect(AC.destination);
+  recDest = AC.createMediaStreamDestination(); vol.connect(recDest);
+  AC.resume();
+}
+function restart() {
+  let lead = 0;
+  if (AC) {
+    if (bus) { const old = bus; old.gain.cancelScheduledValues(AC.currentTime); old.gain.setTargetAtTime(0, AC.currentTime, .04); setTimeout(() => old.disconnect(), 500); }
+    bus = AC.createGain(); bus.connect(master);
+    lead = .15; playScore(AC, bus, AC.currentTime + lead);
+    lead += AC.outputLatency || AC.baseLatency || 0;
+  }
+  start = performance.now() + lead * 1000; done = false; state = 'playing';
+  ui.classList.remove('show'); playBtn.style.display = 'none';
+}
 function tick(now) {
   if (fixedT !== null) { frame(fixedT); window.__ready = true; return; }
-  let t = (now - start) / 1000;
-  if (t >= DUR) {
+  let t = state === 'poster' ? 1.6 : Math.max(0, (now - start) / 1000);
+  if (state === 'playing' && t >= DUR) {
     t = DUR;
-    if (recorder && recorder.state === 'recording') recorder.stop();
+    if (recorder && recorder.state === 'recording') setTimeout(() => recorder && recorder.state === 'recording' && recorder.stop(), 350);
     if (!done) { done = true; if (!recorder) ui.classList.add('show'); }
   }
   frame(t);
   requestAnimationFrame(tick);
 }
+if (fixedT === null && !params.has('audiotest')) playBtn.style.display = 'block';
 requestAnimationFrame(tick);
-document.getElementById('replay').onclick = restart;
+playBtn.onclick = () => { initAudio(); restart(); };
+document.getElementById('replay').onclick = () => { initAudio(); restart(); };
 cv.addEventListener('click', () => { if (done && !recorder) ui.classList.toggle('show'); });
 document.getElementById('rec').onclick = () => {
   if (!window.MediaRecorder || !cv.captureStream) { say('此浏览器不支持录制，请使用 Chrome', 3000); return; }
-  const types = ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  initAudio();
+  const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
   const type = types.find(m => MediaRecorder.isTypeSupported(m)) || '';
+  const stream = cv.captureStream(30);
+  if (recDest) recDest.stream.getAudioTracks().forEach(tr => stream.addTrack(tr));
   const chunks = [];
-  recorder = new MediaRecorder(cv.captureStream(30), { mimeType: type, videoBitsPerSecond: 14e6 });
+  recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 14e6, audioBitsPerSecond: 192e3 });
   recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
   recorder.onstop = () => {
     const ext = type.includes('mp4') ? 'mp4' : 'webm';
@@ -752,6 +903,22 @@ document.getElementById('rec').onclick = () => {
   ui.classList.remove('show'); say('录制中……请勿切换标签页', 2500);
   recorder.start(); restart();
 };
+
+// test hook: ?audiotest renders the soundtrack offline and reports levels
+if (params.has('audiotest')) {
+  const off = new OfflineAudioContext(2, 44100 * 26, 44100);
+  const comp = off.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3; comp.connect(off.destination);
+  const g = off.createGain(); g.connect(comp); playScore(off, g, 0);
+  off.startRendering().then(buf => {
+    const d = buf.getChannelData(0), sec = []; let pk = 0, bad = 0;
+    for (let s = 0; s < 26; s++) { let sum = 0; for (let i = s * 44100; i < (s + 1) * 44100; i++) { const v = d[i]; if (!isFinite(v)) bad++; sum += v * v; pk = Math.max(pk, Math.abs(v)); } sec.push(+Math.sqrt(sum / 44100).toFixed(3)); }
+    window.__audio = { peak: +pk.toFixed(3), bad, rms: sec };
+    const wav = (b => { const n = b.length, o = new DataView(new ArrayBuffer(44 + n * 4)), w = (p, s) => [...s].forEach((c, i) => o.setUint8(p + i, c.charCodeAt(0)));
+      w(0, 'RIFF'); o.setUint32(4, 36 + n * 4, true); w(8, 'WAVEfmt '); o.setUint32(16, 16, true); o.setUint16(20, 1, true); o.setUint16(22, 2, true); o.setUint32(24, 44100, true); o.setUint32(28, 44100 * 4, true); o.setUint16(32, 4, true); o.setUint16(34, 16, true); w(36, 'data'); o.setUint32(40, n * 4, true);
+      const L = b.getChannelData(0), R = b.getChannelData(1); for (let i = 0; i < n; i++) { o.setInt16(44 + i * 4, Math.max(-1, Math.min(1, L[i])) * 32767, true); o.setInt16(46 + i * 4, Math.max(-1, Math.min(1, R[i])) * 32767, true); } return o.buffer; })(buf);
+    window.__wav = new Uint8Array(wav);
+  });
+}
 </script>
 </body>
 </html>
